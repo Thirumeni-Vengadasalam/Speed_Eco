@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+<title>Zone Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<link rel="stylesheet"
+href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<style>
+
+/* FULL PAGE */
+body{
+margin:0;
+font-family:Arial;
+}
+
+/* MAP FULL SCREEN */
+#map{
+height:100vh;
+width:100%;
+}
+
+/* SIDE PANEL */
+#panel{
+position:absolute;
+top:10px;
+left:10px;
+width:280px;
+background:white;
+padding:15px;
+border-radius:10px;
+box-shadow:0 0 10px rgba(0,0,0,0.3);
+z-index:1000;
+font-size:14px;
+max-height:90vh;
+overflow:auto;
+}
+
+/* INPUTS */
+input,select,button{
+width:100%;
+margin:5px 0;
+padding:7px;
+}
+
+/* HEADINGS */
+h4{
+margin:10px 0 5px;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<script>
+const zoneUser =
+JSON.parse(localStorage.getItem("zoneUser"));
+
+if(!zoneUser){
+alert("Login required");
+window.location.href="zone-login.html";
+}
+</script>
+
+<!-- SIDE PANEL -->
+<div id="panel">
+
+<h3>👤 <span id="role"></span></h3>
+
+<h4>🔍 Search Location</h4>
+<input id="searchText" placeholder="Enter place">
+<button onclick="searchLocation()">Search</button>
+
+<h4>📍 Coordinates</h4>
+Lat1 <input id="lat1">
+Lng1 <input id="lng1">
+Lat2 <input id="lat2">
+Lng2 <input id="lng2">
+
+<h4>🏷 Zone Type</h4>
+<select id="zoneType">
+<option value="School">School</option>
+<option value="Hospital">Hospital</option>
+</select>
+
+<h4>⚡ Speed Limit</h4>
+<input id="limit" value="20">
+
+<h4>📏 Zone Size</h4>
+<input type="range"
+id="size"
+min="0.0002"
+max="0.002"
+step="0.0001"
+value="0.0005">
+
+<button onclick="manualZone()">📍 Manual Select</button>
+<button onclick="autoZone()">🛣 Auto Road Zone</button>
+
+<button onclick="addZone()">✅ Add Zone</button>
+
+<hr>
+
+<button onclick="logout()">🚪 Logout</button>
+
+</div>
+
+<!-- MAP -->
+<div id="map"></div>
+
+<script type="module">
+
+import { initializeApp }
+from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
+
+import { getDatabase, ref, set }
+from "https://www.gstatic.com/firebasejs/9.6.1/firebase-database.js";
+
+document.getElementById("role").innerText = zoneUser.role;
+
+const app = initializeApp({
+databaseURL:"https://speed-alert-fd1be-default-rtdb.firebaseio.com"
+});
+
+const db = getDatabase(app);
+
+/* MAP */
+
+const map = L.map("map")
+.setView([10.9945,77.0835],15);
+
+L.tileLayer(
+"https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+).addTo(map);
+
+let previewZone;
+
+/* CLICK MAP */
+
+map.on("click",function(e){
+
+lat1.value = e.latlng.lat;
+lng1.value = e.latlng.lng;
+
+updateZone();
+
+});
+
+/* SIZE CHANGE */
+
+size.oninput = updateZone;
+
+function updateZone(){
+
+if(!lat1.value || !lng1.value) return;
+
+const s = parseFloat(size.value);
+
+lat2.value = parseFloat(lat1.value) + s;
+lng2.value = parseFloat(lng1.value) + s;
+
+if(previewZone) map.removeLayer(previewZone);
+
+previewZone = L.rectangle(
+[[lat1.value,lng1.value],[lat2.value,lng2.value]],
+{color:"blue",fillOpacity:0.3}
+).addTo(map);
+
+}
+
+/* MANUAL */
+
+window.manualZone = ()=>{
+alert("Click on map to select location");
+}
+
+/* ADD ZONE */
+
+window.addZone = ()=>{
+
+const data = {
+type:zoneType.value,   // ✅ School / Hospital
+lat1:+lat1.value,
+lng1:+lng1.value,
+lat2:+lat2.value,
+lng2:+lng2.value,
+limit:+limit.value
+};
+
+set(ref(db,"zones/"+Date.now()),data);
+
+alert("Zone Added Successfully ✅");
+
+}
+
+/* LOGOUT */
+
+window.logout = ()=>{
+localStorage.removeItem("zoneUser");
+window.location.href="zone-login.html";
+}
+
+</script>
+
+<script>
+
+/* SEARCH */
+
+function searchLocation(){
+
+const place = searchText.value;
+
+if(!place){
+alert("Enter location");
+return;
+}
+
+fetch(
+"https://nominatim.openstreetmap.org/search?format=json&limit=1&q="
++ encodeURIComponent(place)
+)
+
+.then(r=>r.json())
+.then(data=>{
+
+if(!data.length){
+alert("Not found");
+return;
+}
+
+const lat = parseFloat(data[0].lat);
+const lon = parseFloat(data[0].lon);
+
+map.setView([lat,lon],17);
+
+lat1.value = lat;
+lng1.value = lon;
+
+updateZone();
+
+});
+
+}
+
+/* AUTO ROAD */
+
+function autoZone(){
+
+const lat = parseFloat(lat1.value);
+const lng = parseFloat(lng1.value);
+
+fetch(
+"https://overpass-api.de/api/interpreter?data=[out:json];way(around:120,"
++lat+","+lng+")[\"highway\"];out geom;"
+)
+
+.then(r=>r.json())
+.then(data=>{
+
+if(!data.elements.length){
+alert("No road found");
+return;
+}
+
+const road = data.elements[0];
+
+let minLat=999,maxLat=-999,minLng=999,maxLng=-999;
+
+road.geometry.forEach(p=>{
+if(p.lat<minLat) minLat=p.lat;
+if(p.lon<minLng) minLng=p.lon;
+if(p.lat>maxLat) maxLat=p.lat;
+if(p.lon>maxLng) maxLng=p.lon;
+});
+
+lat1.value = minLat;
+lng1.value = minLng;
+lat2.value = maxLat;
+lng2.value = maxLng;
+
+if(previewZone) map.removeLayer(previewZone);
+
+previewZone = L.rectangle(
+[[minLat,minLng],[maxLat,maxLng]],
+{color:"green",fillOpacity:0.3}
+).addTo(map);
+
+alert("Road zone created 🛣");
+
+});
+
+}
+
+</script>
+
+</body>
+</html>
