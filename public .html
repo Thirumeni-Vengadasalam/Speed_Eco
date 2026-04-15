@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+<title>Public View</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<link rel="stylesheet"
+href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<style>
+body{margin:0;font-family:Arial;}
+
+/* TOP BAR */
+#topbar{
+position:fixed;
+top:0;
+left:0;
+width:100%;
+background:black;
+color:white;
+padding:10px;
+text-align:center;
+z-index:1000;
+}
+
+/* MAP */
+#map{
+height:65vh;
+width:100%;
+margin-top:50px;
+}
+
+/* VIOLATION PANEL */
+#violationsPanel{
+height:35vh;
+overflow-y:auto;
+background:#111;
+color:white;
+padding:10px;
+}
+
+.violation{
+border-bottom:1px solid gray;
+padding:8px;
+}
+
+.overspeed{ color:red; }
+.safe{ color:lightgreen; }
+
+</style>
+
+</head>
+
+<body>
+
+<div id="topbar">🚦 Waiting for GPS...</div>
+
+<div id="map"></div>
+
+<div id="violationsPanel">
+<h3>🚨 Violations</h3>
+<div id="list"></div>
+</div>
+
+<script type="module">
+
+import { initializeApp }
+from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
+
+import { getDatabase, ref, onValue, push }
+from "https://www.gstatic.com/firebasejs/9.6.1/firebase-database.js";
+
+/* FIREBASE */
+const app = initializeApp({
+databaseURL:"https://speed-alert-fd1be-default-rtdb.firebaseio.com"
+});
+
+const db = getDatabase(app);
+
+/* MAP */
+const map = L.map("map")
+.setView([10.9945,77.0835],15);
+
+L.tileLayer(
+"https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+).addTo(map);
+
+/* ZONES */
+let zoneShapes = [];
+let zones = [];
+
+onValue(ref(db,"zones"), snap => {
+
+  zoneShapes.forEach(z => map.removeLayer(z));
+  zoneShapes = [];
+  zones = [];
+
+  snap.forEach(child => {
+
+    const d = child.val();
+    zones.push(d);
+
+    let color = d.type === "School" ? "orange" : "red";
+
+    const rect = L.rectangle(
+      [[d.lat1,d.lng1],[d.lat2,d.lng2]],
+      { color: color, fillOpacity:0.3 }
+    ).addTo(map);
+
+    rect.bindPopup(
+      "<b>"+(d.name || d.type)+"</b><br>" +
+      "Speed Limit: "+d.limit+" km/h"
+    );
+
+    zoneShapes.push(rect);
+
+  });
+
+});
+
+/* 🔴 HARDWARE */
+let vehicleMarker = L.marker([0,0],{
+  icon: L.icon({
+    iconUrl:"https://maps.google.com/mapfiles/ms/icons/red-dot.png",
+    iconSize:[32,32]
+  })
+}).addTo(map).bindPopup("🚗 Vehicle");
+
+/* 🔵 MOBILE */
+let mobileMarker;
+
+/* HARDWARE GPS */
+onValue(ref(db,"GPS"), snap => {
+
+  const d = snap.val();
+  if(!d) return;
+
+  const lat = d.f_latitude;
+  const lng = d.f_longitude;
+  const speed = d.f_speed;
+
+  vehicleMarker.setLatLng([lat,lng]);
+  map.setView([lat,lng],18);
+
+  checkZone(lat,lng,speed,"hardware");
+
+});
+
+/* MOBILE GPS */
+if(navigator.geolocation){
+
+  navigator.geolocation.watchPosition(pos=>{
+
+    const lat = pos.coords.latitude;
+    const lng = pos.coords.longitude;
+
+    if(!mobileMarker){
+      mobileMarker = L.marker([lat,lng],{
+        icon: L.icon({
+          iconUrl:"https://maps.google.com/mapfiles/ms/icons/blue-dot.png",
+          iconSize:[32,32]
+        })
+      }).addTo(map)
+      .bindPopup("📱 Mobile");
+    }else{
+      mobileMarker.setLatLng([lat,lng]);
+    }
+
+  });
+
+}
+
+/* CHECK ZONE */
+function checkZone(lat,lng,speed,device){
+
+  let inZone = false;
+
+  zones.forEach(z=>{
+
+    if(
+      lat >= z.lat1 && lat <= z.lat2 &&
+      lng >= z.lng1 && lng <= z.lng2
+    ){
+
+      inZone = true;
+
+      if(speed > z.limit){
+
+        document.getElementById("topbar").innerHTML =
+        "🚨 OVER SPEED! Limit: "+z.limit+" km/h | Speed: "+speed;
+
+        push(ref(db,"violations"),{
+          speed: speed.toFixed(1),
+          zone: z.type,
+          time: new Date().toLocaleTimeString(),
+          device: device
+        });
+
+      }else{
+
+        document.getElementById("topbar").innerHTML =
+        "✅ Safe | Limit: "+z.limit+" | Speed: "+speed;
+
+      }
+
+    }
+
+  });
+
+  if(!inZone){
+    document.getElementById("topbar").innerHTML =
+    "🚗 Outside Zone | Speed: "+speed;
+  }
+
+}
+
+/* LOAD VIOLATIONS LIST */
+onValue(ref(db,"violations"), snap => {
+
+  const list = document.getElementById("list");
+  list.innerHTML = "";
+
+  snap.forEach(child => {
+
+    const v = child.val();
+
+    const div = document.createElement("div");
+    div.className = "violation";
+
+    div.innerHTML =
+    "🚨 Speed: "+v.speed+" km/h<br>" +
+    "Zone: "+v.zone+"<br>" +
+    "Time: "+v.time+"<br>" +
+    "Device: "+v.device;
+
+    list.prepend(div);
+
+  });
+
+});
+
+</script>
+
+</body>
+</html>
