@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Login</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+body{font-family:Arial;text-align:center;padding-top:100px;background:#0f2027;color:white;}
+input,button{padding:10px;margin:5px;}
+</style>
+</head>
+<body>
+
+<h1>Speed Echo</h1>
+
+<input id="password" placeholder="Enter Password"><br>
+
+<button onclick="login()">Login</button>
+
+<h3>OR</h3>
+
+<button onclick="goPublic()">Public View</button>
+
+<p id="msg"></p>
+
+<script>
+function login(){
+  if(password.value==="zone123"){
+    localStorage.setItem("admin","yes");
+    location.href="zonedashboard.html";
+  }else{
+    msg.innerText="Wrong Password";
+  }
+}
+
+function goPublic(){
+  location.href="public.html";
+}
+</script>
+
+</body>
+</html>
